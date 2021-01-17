@@ -6,7 +6,9 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:json_annotation/json_annotation.dart';
 
+part 'qrcode.g.dart';
 
 void main() {
   // debugPaintSizeEnabled = true;
@@ -24,17 +26,59 @@ class HistoryItem{
   String text2;
   String text3;
   String comment;
-  
+
   HistoryItem(this.text1, this.text2, this.text3, this.comment);
+}
+
+@JsonSerializable()
+class CheckinItem{
+  String name;
+  String desc;
+  String date;
+  int lat;
+  int long;
+  int units;
+  int checkin_limit; // ignore: non_constant_identifier_names
+  int access_code; // ignore: non_constant_identifier_names
+  int active_status; // ignore: non_constant_identifier_names
+
+  CheckinItem(this.name, this.desc, this.date, this.lat, this.long, this.units,
+      this.checkin_limit, this.access_code,
+      this.active_status);
+
+
+  factory CheckinItem.fromJson(Map<String, dynamic> json) =>
+      _$CheckinItemFromJson(json);
+
+  Map<String, dynamic> toJson() => _$CheckinItemToJson(this);
+}
+
+@JsonSerializable()
+class CheckinEvent{
+  @JsonKey(name: '_id')
+  String id;
+  String timestamp;
+  CheckinItem checkin_item; // ignore: non_constant_identifier_names
+  String user;
+
+  CheckinEvent(this.id, this.timestamp, this.checkin_item, this.user);
+
+  factory CheckinEvent.fromJson(Map<String, dynamic> json) =>
+      _$CheckinEventFromJson(json);
+
+  Map<String, dynamic> toJson() => _$CheckinEventToJson(this);
+
 }
 
 
 class _QRHomeState extends State<QRHome> {
 
-  List history = new List();
+  List history;
   List scanConfig = ["One", "One", false, ""];
   String id;
   bool admin = false;
+  String token;
+  List checkInItems;
 
   void addHistory(text1, text2, text3, comment){
     setState(() {
@@ -54,28 +98,28 @@ class _QRHomeState extends State<QRHome> {
     });
   }
 
-  void setID(thisID, thisAdmin){
-    setState(() {
-      id = thisID;
-      admin = thisAdmin;
-    });
-  }
-
-  Future getID() async{
+  Future getID(email, pass) async{
+    id = null;
+    admin = false;
+    token = null;
     var response = await http.post(
-        Uri.encodeFull("https://tartanhacks-testing.herokuapp.com/auth/login"),
+        Uri.encodeFull("https://thd-api.herokuapp.com/auth/login"),
         body: {
-          "email": "joyceh@andrew.cmu.edu",
-          "password": "TartanHacksTest"
+          "email": email,
+          "password": pass
         }
     );
     Map data = json.decode(response.body);
-    setID(data["user"]["id"], data["user"]["admin"]);
+    setState(() {
+      id = data["participant"]["_id"];
+      admin = data["participant"]["is_admin"];
+      token = data["access_token"];
+    });
   }
 
   @override
   void initState() {
-    getID();
+    getID("joyceh@andrew.cmu.edu", "TartanHacksTest");
     super.initState();
   }
 
@@ -100,7 +144,7 @@ class _QRHomeState extends State<QRHome> {
       ),
         home: QRPage(history: history, addHistory: addHistory,
           delHistory: delHistory, scanConfig: scanConfig, setConfig: setConfig,
-          setID: setID, id: id, admin: admin)
+          getID: getID, id: id, admin: admin, token: token)
     );
   }
 }
@@ -113,12 +157,13 @@ class QRPage extends StatelessWidget{
   final Function delHistory;
   final List scanConfig;
   final Function setConfig;
-  final Function setID;
+  final Function getID;
   final String id;
   final bool admin;
+  final String token;
 
   QRPage({this.history, this.addHistory, this.delHistory, this.scanConfig,
-    this.setConfig, this.setID, this.id, this.admin});
+    this.setConfig, this.getID, this.id, this.admin, this.token});
 
   Future scan(BuildContext context) async {
     String scanRes = await scanner.scan();
@@ -126,11 +171,11 @@ class QRPage extends StatelessWidget{
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) =>
-            HistoryPage(history:history, addHistory:addHistory,
+            HistoryPage(id: scanRes, token: token,
                 delHistory: delHistory, editing: true)),
       );
     }else {
-      addHistory(scanConfig[0], DateFormat.jm().add_yMd() .format(DateTime.now()),
+      addHistory(scanConfig[0], DateFormat.jm().add_yMd().format(DateTime.now()),
           scanRes, scanConfig[3]);
     }
   }
@@ -146,7 +191,11 @@ class QRPage extends StatelessWidget{
             IconButton(
               icon: const Icon(Icons.admin_panel_settings, size: 30),
               onPressed: () {
-                setID(id, !admin);
+                if(!admin){
+                  getID("gdl2@andrew.cmu.edu", "8JK9NtPb&jdM!E3@");
+                }else{
+                  getID("joyceh@andrew.cmu.edu", "TartanHacksTest");
+                }
               },
             )
           ],
@@ -182,8 +231,8 @@ class QRPage extends StatelessWidget{
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (context) =>
-                            HistoryPage(history:history, addHistory:addHistory,
-                                editing:false)),
+                            HistoryPage(id: id, token: token,
+                            delHistory: delHistory, editing: false)),
                       );
                     },
                     padding: const EdgeInsets.only(top:10, bottom:10,
@@ -228,7 +277,7 @@ class QRPage extends StatelessWidget{
 
 
 class InfoTile extends StatelessWidget{
-  final HistoryItem info;
+  final CheckinEvent info;
   final bool editing;
   final Function delHistory;
 
@@ -245,7 +294,7 @@ class InfoTile extends StatelessWidget{
               builder: (BuildContext context) {
                 return AlertDialog(
                   title: Text(
-                      '${info.text1}',
+                      '${info.checkin_item.name}',
                       style: TextStyle(
                         fontSize: 30,
                         fontWeight: FontWeight.bold,
@@ -255,7 +304,11 @@ class InfoTile extends StatelessWidget{
                     child: ListBody(
                       children: <Widget>[
                         Text(
-                            '${info.text2}',
+                            '${DateFormat.jm().add_yMd().format(
+                                new DateTime.fromMillisecondsSinceEpoch(
+                                    int.parse(info.timestamp)*1000,
+                                    ).toLocal()
+                            )}',
                             style: TextStyle(
                               fontSize: 20,
                               color: Colors.grey[700],
@@ -263,7 +316,7 @@ class InfoTile extends StatelessWidget{
                         ),
                         const SizedBox(height: 8),
                         Text(
-                            '${info.text3}',
+                            '${info.user}',
                             style: TextStyle(
                               fontSize: 20,
                               color: Colors.grey[700],
@@ -271,7 +324,7 @@ class InfoTile extends StatelessWidget{
                         ),
                         const SizedBox(height: 14),
                         Text(
-                          '${info.comment}',
+                          '${info.checkin_item.desc}',
                             style: TextStyle(
                               fontSize: 16,
                               color: Colors.grey[500],
@@ -313,7 +366,7 @@ class InfoTile extends StatelessWidget{
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                                '${info.text1}',
+                                '${info.checkin_item.name}',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
@@ -321,7 +374,11 @@ class InfoTile extends StatelessWidget{
                             ),
                             const SizedBox(height: 8),
                             Text(
-                                '${info.text2}',
+                                '${DateFormat.jm().add_yMd().format(
+                                    new DateTime.fromMillisecondsSinceEpoch(
+                                      int.parse(info.timestamp)*1000,
+                                    ).toLocal()
+                                )}',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.grey[500],
@@ -329,7 +386,7 @@ class InfoTile extends StatelessWidget{
                             ),
                             const SizedBox(height: 8),
                             Text(
-                                '${info.text3}',
+                                '${info.user}',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.grey[500],
@@ -345,36 +402,106 @@ class InfoTile extends StatelessWidget{
   }
 }
 
-
-class HistoryPage extends StatelessWidget{
-
-  final List history;
-  final Function addHistory;
+class HistoryPage extends StatefulWidget{
+  final String id;
+  final String token;
   final Function delHistory;
   final bool editing;
 
-  HistoryPage({this.history, this.addHistory, this.delHistory, this.editing});
+  HistoryPage({this.id, this.token, this.delHistory, this.editing});
+
+  _HistoryPageState createState() => _HistoryPageState();
+
+}
+
+class _HistoryPageState extends State<HistoryPage>{
+
+  String name;
+  List history;
+  bool loaded = false;
+
+  Future getHistory() async{
+    var queryParams = {
+      "user_id": widget.id,
+    };
+    var response = await http.get(
+        Uri.https("thd-api.herokuapp.com", "/checkin/history",
+            queryParams),
+        headers:{"token": widget.token}
+    );
+
+    Map data = json.decode(response.body);
+    List raw = data["checkin_history"];
+    raw = raw.map((element) =>
+        CheckinEvent.fromJson(Map<String, dynamic>.from(element))).toList();
+    if(this.mounted){
+      setState(() {
+        name = data["user"]["name"];
+        history = raw;
+        loaded = true;
+      });
+    }
+  }
+
+  @override
+  void initState() {
+    if(history != null){
+      history = null;
+    }
+    if(name != null){
+      name = null;
+    }
+    getHistory();
+    //print(history.runtimeType);
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
         appBar: AppBar(
-          title: Text('Scan History',
-              style: Theme.of(context).textTheme.headline1),
+          title:
+          (name != null) ?
+          Text("$name's Check In History",
+              style: Theme.of(context).textTheme.headline1)
+          : null,
           backgroundColor: Theme.of(context).primaryColor,
           toolbarHeight: 70,
         ),
         body: Column(
             children: <Widget>[
-              Expanded(
-                child:  ListView.builder(
-                  itemCount: history.length,
-                  itemBuilder: (BuildContext context, int index){
-                    return InfoTile(info: history[index],
-                        editing: editing, delHistory: delHistory,);
-                  },
-                ),
-              ),
+              (history != null && history.length > 0) ?
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: history.length,
+                      itemBuilder: (BuildContext context, int index){
+                        return InfoTile(info: history[index],
+                          editing: widget.editing,
+                          delHistory: widget.delHistory,);
+                      },
+                    ),
+                  )
+              : SizedBox(
+                height: 100,
+                child: Align(
+                    alignment: Alignment.center,
+                    child:
+                    (loaded) ?
+                    Text(
+                        "No checkin items found.",
+                        style: TextStyle(
+                          fontSize: 30,
+                        )
+                    )
+                    : Text(
+                        "Loading...",
+                        style: TextStyle(
+                          fontSize: 35,
+                          fontWeight: FontWeight.bold,
+                        )
+                    )
+                )
+              )
             ]
         )
     );
@@ -506,7 +633,7 @@ class _ConfigPageState extends State<ConfigPage> {
                     ),
                     const SizedBox(height:20),
                     CheckboxListTile(
-                      title: Text("Delete Mode"),
+                      title: Text("View History"),
                       value: widget.scanConfig[2],
                       onChanged: (bool newValue) {
                         if(newValue){
