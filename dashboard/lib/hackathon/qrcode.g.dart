@@ -8,6 +8,7 @@ part of 'qrcode.dart';
 
 CheckinItem _$CheckinItemFromJson(Map<String, dynamic> json) {
   return CheckinItem(
+    json['_id'] as String,
     json['name'] as String,
     json['desc'] as String,
     json['date'] as String,
@@ -22,6 +23,7 @@ CheckinItem _$CheckinItemFromJson(Map<String, dynamic> json) {
 
 Map<String, dynamic> _$CheckinItemToJson(CheckinItem instance) =>
     <String, dynamic>{
+      '_id': instance.id,
       'name': instance.name,
       'desc': instance.desc,
       'date': instance.date,

@@ -11,7 +11,6 @@ import 'package:json_annotation/json_annotation.dart';
 part 'qrcode.g.dart';
 
 void main() {
-  // debugPaintSizeEnabled = true;
   runApp(QRHome());
 }
 
@@ -32,6 +31,8 @@ class HistoryItem{
 
 @JsonSerializable()
 class CheckinItem{
+  @JsonKey(name: '_id')
+  String id;
   String name;
   String desc;
   String date;
@@ -42,9 +43,8 @@ class CheckinItem{
   int access_code; // ignore: non_constant_identifier_names
   int active_status; // ignore: non_constant_identifier_names
 
-  CheckinItem(this.name, this.desc, this.date, this.lat, this.long, this.units,
-      this.checkin_limit, this.access_code,
-      this.active_status);
+  CheckinItem(this.id, this.name, this.desc, this.date, this.lat, this.long,
+      this.units, this.checkin_limit, this.access_code, this.active_status);
 
 
   factory CheckinItem.fromJson(Map<String, dynamic> json) =>
@@ -74,17 +74,11 @@ class CheckinEvent{
 class _QRHomeState extends State<QRHome> {
 
   List history;
-  List scanConfig = ["One", "One", false, ""];
+  List scanConfig = ["", "", false];
   String id;
   bool admin = false;
   String token;
-  List checkInItems;
-
-  void addHistory(text1, text2, text3, comment){
-    setState(() {
-      history.insert(0, new HistoryItem(text1, text2, text3, comment));
-    });
-  }
+  List checkinItems;
 
   void delHistory(hItem){
     setState(() {
@@ -117,9 +111,27 @@ class _QRHomeState extends State<QRHome> {
     });
   }
 
+  Future getCheckinItems() async{
+    var response = await http.post(
+        Uri.encodeFull("https://thd-api.herokuapp.com/checkin/get"),
+        headers:{"token": token}
+    );
+    List data = json.decode(response.body);
+    setState(() {
+      checkinItems = data.map((element) =>
+          CheckinItem.fromJson(element)).toList();
+      scanConfig[0] = checkinItems[0].id;
+    });
+  }
+
+  Future setup() async{
+    await getID("joyceh@andrew.cmu.edu", "TartanHacksTest");
+    await getCheckinItems();
+  }
+
   @override
   void initState() {
-    getID("joyceh@andrew.cmu.edu", "TartanHacksTest");
+    setup();
     super.initState();
   }
 
@@ -142,9 +154,10 @@ class _QRHomeState extends State<QRHome> {
             button: TextStyle(fontSize: 30, color: Colors.white)
           )
       ),
-        home: QRPage(history: history, addHistory: addHistory,
-          delHistory: delHistory, scanConfig: scanConfig, setConfig: setConfig,
-          getID: getID, id: id, admin: admin, token: token)
+        home: QRPage(history: history, delHistory: delHistory,
+          scanConfig: scanConfig, setConfig: setConfig,
+          getID: getID, id: id, admin: admin, token: token,
+          checkinItems: checkinItems)
     );
   }
 }
@@ -153,7 +166,6 @@ class _QRHomeState extends State<QRHome> {
 class QRPage extends StatelessWidget{
 
   final List history;
-  final Function addHistory;
   final Function delHistory;
   final List scanConfig;
   final Function setConfig;
@@ -161,9 +173,22 @@ class QRPage extends StatelessWidget{
   final String id;
   final bool admin;
   final String token;
+  final List checkinItems;
 
-  QRPage({this.history, this.addHistory, this.delHistory, this.scanConfig,
-    this.setConfig, this.getID, this.id, this.admin, this.token});
+  QRPage({this.history, this.delHistory, this.scanConfig,
+    this.setConfig, this.getID, this.id, this.admin, this.token,
+    this.checkinItems});
+
+  Future checkinUser(user) async{
+    await http.post(
+        Uri.encodeFull("https://thd-api.herokuapp.com/checkin/user"),
+        headers:{"token": token},
+        body:{
+          "user_id": user,
+          "checkin_item_id": scanConfig[0],
+        }
+    );
+  }
 
   Future scan(BuildContext context) async {
     String scanRes = await scanner.scan();
@@ -175,8 +200,7 @@ class QRPage extends StatelessWidget{
                 delHistory: delHistory, editing: true)),
       );
     }else {
-      addHistory(scanConfig[0], DateFormat.jm().add_yMd().format(DateTime.now()),
-          scanRes, scanConfig[3]);
+      checkinUser(scanRes);
     }
   }
 
@@ -259,7 +283,8 @@ class QRPage extends StatelessWidget{
                               context,
                               MaterialPageRoute(builder: (context) =>
                                   ConfigPage(scanConfig: scanConfig,
-                                      setConfig: setConfig)),
+                                      setConfig: setConfig,
+                                      checkinItems: checkinItems)),
                             );
                           },
                           padding: const EdgeInsets.only(top:10, bottom:10,
@@ -316,7 +341,7 @@ class InfoTile extends StatelessWidget{
                         ),
                         const SizedBox(height: 8),
                         Text(
-                            '${info.user}',
+                            'Checked in by: X',
                             style: TextStyle(
                               fontSize: 20,
                               color: Colors.grey[700],
@@ -386,7 +411,7 @@ class InfoTile extends StatelessWidget{
                             ),
                             const SizedBox(height: 8),
                             Text(
-                                '${info.user}',
+                                'Checked in by: X',
                                 style: TextStyle(
                                   fontSize: 14,
                                   color: Colors.grey[500],
@@ -511,8 +536,9 @@ class _HistoryPageState extends State<HistoryPage>{
 class ConfigPage extends StatefulWidget{
   final List scanConfig;
   final Function setConfig;
+  final List checkinItems;
 
-  ConfigPage({this.scanConfig, this.setConfig});
+  ConfigPage({this.scanConfig, this.setConfig, this.checkinItems});
 
   _ConfigPageState createState() => _ConfigPageState();
 }
@@ -524,14 +550,13 @@ class _ConfigPageState extends State<ConfigPage> {
 
   @override
   void dispose() {
-    // Clean up the controller when the widget is disposed.
     commentControl.dispose();
     super.dispose();
   }
 
   @override
   void initState() {
-    commentControl.text = !widget.scanConfig[2] ? widget.scanConfig[3] : "";
+    commentControl.text = !widget.scanConfig[2] ? widget.scanConfig[1] : "";
     super.initState();
   }
 
@@ -553,20 +578,22 @@ class _ConfigPageState extends State<ConfigPage> {
                     Row(
                         children: [
                           Container(
-                            child: Text("Option A",
+                            child: Text("Check In Item",
                                 style: Theme.of(context).textTheme.subtitle1),
-                            width: 120,
+                            width: 150,
                           ),
                           const SizedBox(width: 50),
                           Expanded(
                             child: DropdownButton<String>(
                                 isExpanded: true,
                                 value: widget.scanConfig[0],
-                                items: <String>['One', 'Two', 'Three', 'Four']
-                                    .map<DropdownMenuItem<String>>((String value) {
+                                items: widget.checkinItems
+                                    .where((element) => 
+                                      element.active_status == 2)
+                                    .map<DropdownMenuItem<String>>((value) {
                                   return DropdownMenuItem<String>(
-                                      value: value,
-                                      child: Text(value)
+                                      value: value.id,
+                                      child: Text(value.name)
                                   );
                                 }).toList(),
                                 disabledHint: Text(widget.scanConfig[0]),
@@ -580,39 +607,6 @@ class _ConfigPageState extends State<ConfigPage> {
                                   widget.setConfig(newValue, 0);
                                 } : null
                             )
-                          )
-                        ]
-                    ),
-                    Row(
-                        children:[
-                          Container(
-                            child: Text("Option B",
-                                style: Theme.of(context).textTheme.subtitle1),
-                            width: 120,
-                          ),
-                          const SizedBox(width: 50),
-                          Expanded(
-                              child: DropdownButton<String>(
-                                  isExpanded: true,
-                                  value: widget.scanConfig[1],
-                                  items: <String>['One', 'Two', 'Three', 'Four']
-                                      .map<DropdownMenuItem<String>>((String value) {
-                                    return DropdownMenuItem<String>(
-                                        value: value,
-                                        child: Text(value),
-                                    );
-                                  }).toList(),
-                                  disabledHint: Text(widget.scanConfig[1]),
-                                  underline: Container(
-                                      height: 2,
-                                      color: (!widget.scanConfig[2]) ?
-                                      Theme.of(context).primaryColor
-                                          : Colors.grey[500]
-                                  ),
-                                  onChanged: (!widget.scanConfig[2]) ? (String newValue) {
-                                    widget.setConfig(newValue, 1);
-                                  } : null
-                              )
                           )
                         ]
                     ),
@@ -639,7 +633,7 @@ class _ConfigPageState extends State<ConfigPage> {
                         if(newValue){
                           commentControl.clear();
                         }else{
-                          commentControl.text = widget.scanConfig[3];
+                          commentControl.text = widget.scanConfig[1];
                         }
                         widget.setConfig(newValue, 2);
                       }
