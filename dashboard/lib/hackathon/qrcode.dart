@@ -19,16 +19,6 @@ class QRHome extends StatefulWidget{
   _QRHomeState createState() => _QRHomeState();
 }
 
-
-class HistoryItem{
-  String text1;
-  String text2;
-  String text3;
-  String comment;
-
-  HistoryItem(this.text1, this.text2, this.text3, this.comment);
-}
-
 @JsonSerializable()
 class CheckinItem{
   @JsonKey(name: '_id')
@@ -143,16 +133,24 @@ class _QRHomeState extends State<QRHome> {
         theme: ThemeData(
           canvasColor: Colors.white,
           primaryColor: Color(0xffcb1a1d),
-          accentColor: Colors.blue,
+          accentColor: Colors.black,
           buttonColor: Colors.black,
           fontFamily: 'Lato',
           textTheme: TextTheme(
             headline1: TextStyle(fontSize: 35, fontWeight: FontWeight.bold,
                 color: Colors.white),
+            headline2: TextStyle(fontSize: 28, fontWeight: FontWeight.bold,
+                color: Colors.white),
             subtitle1: TextStyle(fontSize: 20, color: Colors.black,
                 fontWeight: FontWeight.normal),
             button: TextStyle(fontSize: 30, color: Colors.white)
-          )
+          ),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              primary: Color(0xffcb1a1d),
+              textStyle: TextStyle(fontSize: 30, fontWeight: FontWeight.bold)
+            ),
+          ),
       ),
         home: QRPage(history: history, delHistory: delHistory,
           scanConfig: scanConfig, setConfig: setConfig,
@@ -179,15 +177,44 @@ class QRPage extends StatelessWidget{
     this.setConfig, this.getID, this.id, this.admin, this.token,
     this.checkinItems});
 
-  Future checkinUser(user) async{
-    await http.post(
-        Uri.encodeFull("https://thd-api.herokuapp.com/checkin/user"),
-        headers:{"token": token},
-        body:{
-          "user_id": user,
-          "checkin_item_id": scanConfig[0],
-        }
+  Future errorDialog(text, context) async {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Check in failed',
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.bold,
+            )
+          ),
+          content: Text(text),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Close'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      }
     );
+  }
+
+  Future checkinUser(user, context) async{
+    var response = await http.post(
+      Uri.encodeFull("https://thd-api.herokuapp.com/checkin/user"),
+      headers:{"token": token},
+      body:{
+        "user_id": user,
+        "checkin_item_id": scanConfig[0],
+      }
+    );
+    if(response.statusCode != 200) {
+      Map data = json.decode(response.body);
+      errorDialog(data['message'], context);
+    }
   }
 
   Future scan(BuildContext context) async {
@@ -200,7 +227,7 @@ class QRPage extends StatelessWidget{
                 delHistory: delHistory, editing: true)),
       );
     }else {
-      checkinUser(scanRes);
+      checkinUser(scanRes, context);
     }
   }
 
@@ -462,7 +489,7 @@ class _HistoryPageState extends State<HistoryPage>{
     if(this.mounted){
       setState(() {
         name = data["user"]["name"];
-        history = raw;
+        history = raw.reversed.toList();
         loaded = true;
       });
     }
@@ -487,8 +514,8 @@ class _HistoryPageState extends State<HistoryPage>{
         appBar: AppBar(
           title:
           (name != null) ?
-          Text("$name's Check In History",
-              style: Theme.of(context).textTheme.headline1)
+          Text("$name's History",
+              style: Theme.of(context).textTheme.headline2)
           : null,
           backgroundColor: Theme.of(context).primaryColor,
           toolbarHeight: 70,
@@ -582,7 +609,7 @@ class _ConfigPageState extends State<ConfigPage> {
                                 style: Theme.of(context).textTheme.subtitle1),
                             width: 150,
                           ),
-                          const SizedBox(width: 50),
+                          const SizedBox(width: 30),
                           Expanded(
                             child: DropdownButton<String>(
                                 isExpanded: true,
@@ -596,7 +623,7 @@ class _ConfigPageState extends State<ConfigPage> {
                                       child: Text(value.name)
                                   );
                                 }).toList(),
-                                disabledHint: Text(widget.scanConfig[0]),
+                                disabledHint: Text("N/A"),
                                 underline: Container(
                                     height: 2,
                                     color: (!widget.scanConfig[2]) ?
@@ -619,7 +646,7 @@ class _ConfigPageState extends State<ConfigPage> {
                       decoration: InputDecoration(
                         border: OutlineInputBorder(),
                         hintText: !widget.scanConfig[2] ? "Additional comment"
-                            : "No comments in delete mode"
+                            : "No comments in viewing mode"
                       ),
                       onChanged: (String value) {
                         widget.setConfig(value, 3);
